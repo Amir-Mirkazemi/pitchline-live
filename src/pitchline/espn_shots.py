@@ -58,11 +58,51 @@ def _situation(play_type: str, text: str) -> str:
     return "open_play"
 
 
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower().replace("&", "and"))
+
+
+_TEXT_SHOT = re.compile(r"^Attempt (missed|saved|blocked)\. (.+?) \((.+?)\) ")
+_ASSIST = re.compile(r"Assisted by (.+?)(?: with | following |\.|$)")
+_TEXT_OUTCOME = {"missed": ("off_target", False), "saved": ("saved", True), "blocked": ("blocked", False)}
+
+
+def _text_only_shot(entry: dict, team_names: dict[str, str], event_id: str, league: str) -> dict | None:
+    """Shots that ESPN publishes as plain commentary text with no structured `play` (no coordinates)."""
+    text = entry.get("text") or ""
+    m = _TEXT_SHOT.match(text)
+    if not m:
+        return None
+    kind, player, team_txt = m.groups()
+    team = team_names.get(_norm(team_txt))
+    if team is None:
+        return None
+    outcome, on_target = _TEXT_OUTCOME[kind]
+    body = next((n for n, rx in _BODY if rx.search(text)), "other")
+    zone = _ZONE.search(text)
+    assist = _ASSIST.search(text)
+    t = entry.get("time") or {}
+    return {
+        "league": league, "event_id": str(event_id), "play_id": f"text:{entry.get('sequence')}",
+        "period": None, "seconds": t.get("value"), "wallclock": None, "team": team, "player": player,
+        "assist_player": assist.group(1) if assist else None, "outcome": outcome, "on_target": on_target,
+        "is_goal": False, "body_part": body, "situation": _situation("", text),
+        "assist_is_cross": bool(_CROSS.search(text)), "assist_is_through_ball": bool(_THROUGH.search(text)),
+        "zone_text": zone.group(1).lower() if zone else None, "x": None, "y": None, "goal_y": None,
+        "has_location": False, "raw_text": text,
+    }
+
+
 def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    team_names = {_norm(t["team"]["displayName"]): t["team"]["displayName"]
+                  for t in summary.get("boxscore", {}).get("teams", []) if t.get("team")}
     for entry in summary.get("commentary", []):
         play = entry.get("play")
         if not play:
+            extra = _text_only_shot(entry, team_names, event_id, league)
+            if extra:
+                rows.append(extra)
             continue
         ptype = play.get("type", {}).get("text")
         text = play.get("text") or entry.get("text") or ""
@@ -98,6 +138,7 @@ def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dic
                 "x": play.get("fieldPositionX"),
                 "y": play.get("fieldPositionY"),
                 "goal_y": play.get("goalPositionY"),
+                "has_location": play.get("fieldPositionX") is not None,
                 "raw_text": text,
             }
         )

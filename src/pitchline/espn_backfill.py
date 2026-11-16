@@ -93,6 +93,10 @@ def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = 
         mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
         if str(len(mine)) != str(tot["totalShots"]):
             status = "mismatch"
+            if detail is not None and len(mine) > int(tot["totalShots"] or 0):
+                for sh in mine:
+                    detail.append(f"  [{team}] {sh['seconds']}s {sh['outcome']} {sh['player']} "
+                                  f"(play {sh['play_id']}) {sh['raw_text'][:90]!r}")
             if detail is not None:
                 detail.append(f"{team}: parsed total={len(mine)} boxscore total={tot['totalShots']}"
                               f" shot-teams={teams_in_shots}")

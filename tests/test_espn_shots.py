@@ -59,3 +59,26 @@ def test_direct_free_kick_attempt_typed_free_kick_is_still_a_shot():
 def test_non_shot_free_kick_lines_are_ignored():
     s = {"commentary": [_play("Free Kick", "Free kick awarded to Home.", ["X"])]}
     assert parse_shots(s, "9", "eng.1") == []
+
+
+def _box(*teams):
+    return {"boxscore": {"teams": [{"team": {"displayName": t}} for t in teams]}}
+
+
+def test_text_only_shot_without_play_object_is_parsed_without_location():
+    line = ("Attempt blocked. A D (Manchester United) left footed shot from the centre of the box "
+            "is blocked. Assisted by B C with a cross.")
+    s = {**_box("Manchester United", "Nottingham Forest"),
+         "commentary": [{"sequence": 41, "text": line, "time": {"value": 600.0}}]}
+    r = parse_shots(s, "9", "eng.1")[0]
+    assert (r["team"], r["player"], r["outcome"], r["assist_player"]) == ("Manchester United", "A D", "blocked", "B C")
+    assert r["has_location"] is False and r["x"] is None and r["assist_is_cross"]
+
+
+def test_text_only_team_name_matches_despite_ampersand_and_unknown_team_is_skipped():
+    ok = {"sequence": 1, "text": "Attempt saved. P G (Brighton and Hove Albion) right footed shot is saved.",
+          "time": {"value": 60.0}}
+    bad = {"sequence": 2, "text": "Attempt saved. Q (Mystery FC) right footed shot is saved.", "time": {"value": 90.0}}
+    s = {**_box("Brighton & Hove Albion"), "commentary": [ok, bad]}
+    rows = parse_shots(s, "9", "eng.1")
+    assert len(rows) == 1 and rows[0]["team"] == "Brighton & Hove Albion"
