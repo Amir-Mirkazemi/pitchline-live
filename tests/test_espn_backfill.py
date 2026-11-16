@@ -122,3 +122,12 @@ def test_player_stats_from_espn_are_stored(tmp_path):
     assert rec["players"] == [{"team": "Home", "player": "A", "shots": 2, "shots_on_target": 2,
                                "goals": 0, "assists": 0, "own_goals": 0}]
     assert rec["on_target_gap"] == 0
+
+
+def test_suspicious_lines_flags_unparsed_and_duplicate_shots():
+    from pitchline.espn_shots import parse_shots
+    odd = {"text": "Z (Home) hits the bar with a volley.", "play": {"id": "77", "type": {"text": "Volley"}}}
+    s = {"commentary": [_shot("1", "Home", "Shot Off Target"), _shot("2", "Home", "Shot Off Target"), odd]}
+    out = eb.suspicious_lines(s, parse_shots(s, "9", "eng.1"))
+    assert any("UNPARSED" in line and "hits the bar" in line for line in out)
+    assert any("DUPLICATE?" in line for line in out)

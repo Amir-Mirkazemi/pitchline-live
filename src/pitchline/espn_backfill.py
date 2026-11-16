@@ -111,6 +111,27 @@ def on_target_gap(shots: list[dict], totals: dict[str, dict]) -> int:
     return gap
 
 
+_SHOTLIKE = ("attempt", "goal", "penalty", "woodwork", "hits the", "own goal", "shot")
+
+
+def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
+    """Lines that look like shots but were not parsed, plus possible duplicate shots (diagnostics)."""
+    parsed = {s["play_id"] for s in shots}
+    out = []
+    for e in summary.get("commentary", []):
+        p = e.get("play") or {}
+        text = e.get("text") or ""
+        pid = str(p.get("id", ""))
+        if pid not in parsed and any(k in text.lower() for k in _SHOTLIKE):
+            out.append(f"UNPARSED type={(p.get('type') or {}).get('text')!r} text={text[:150]!r}")
+    seen: dict[tuple, int] = {}
+    for sh in shots:
+        k = (sh["team"], sh["player"], sh["seconds"], sh["outcome"])
+        seen[k] = seen.get(k, 0) + 1
+    out += [f"DUPLICATE? {k} x{n}" for k, n in seen.items() if n > 1]
+    return out
+
+
 def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = False) -> str | None:
     key = f"espn/matches/{league}/{ev['id']}.json"
     if store.exists(key):
@@ -133,6 +154,8 @@ def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = 
         log.warning("event %s %s: %s | commentary entries=%d, shots parsed=%d | %s", ev["id"],
                     rec["coverage"], " / ".join(t["name"] for t in rec["teams"]),
                     len(summary.get("commentary", [])), len(shots), "; ".join(detail))
+        for line in suspicious_lines(summary, shots):
+            log.warning("  event %s %s", ev["id"], line)
     store.write_bytes(key, json.dumps(rec).encode())
     return rec["coverage"]
 
