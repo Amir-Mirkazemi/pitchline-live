@@ -1,0 +1,9 @@
+# Which competition-seasons to load. Add a line to widen the warehouse.
+# IDs come from StatsBomb's open-data competitions.json.
+base_url: https://raw.githubusercontent.com/statsbomb/open-data/master/data
+competitions:
+  - {competition_id: 43,  season_id: 106, name: "FIFA World Cup 2022"}
+  - {competition_id: 55,  season_id: 282, name: "UEFA Euro 2024"}
+  - {competition_id: 223, season_id: 282, name: "Copa America 2024"}
+  - {competition_id: 43,  season_id: 3,   name: "FIFA World Cup 2018"}
+  - {competition_id: 55,  season_id: 43,  name: "UEFA Euro 2020"}

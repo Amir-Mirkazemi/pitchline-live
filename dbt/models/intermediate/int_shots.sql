@@ -1,0 +1,25 @@
+select
+    match_id,
+    event_id                                  as shot_id,
+    event_index,
+    period,
+    minute,
+    team_id,
+    team,
+    player_id,
+    player,
+    x,
+    y,
+    shot_xg                                   as xg,
+    shot_outcome                              as outcome,
+    shot_type,
+    shot_body_part,
+    shot_key_pass_id                          as key_pass_id,
+    shot_end_x,
+    shot_end_y,
+    shot_outcome = 'Goal'                     as is_goal,
+    shot_type = 'Penalty'                     as is_penalty,
+    period = 5                                as is_shootout,
+    coalesce(shot_xg, 0) >= 0.2               as is_big_chance
+from {{ ref('stg_events') }}
+where event_type = 'Shot'

@@ -1,0 +1,92 @@
+"""Parse ESPN match-summary commentary into one clean row per shot.
+
+Source: https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/summary?event=ID
+(unofficial endpoint). Every shot-like commentary entry carries a structured
+``play`` object with type, team, participants (shooter first, assister second)
+and pitch coordinates, so the parser relies on structure first and uses the
+free text only for body part, situation and cross detection.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+# ESPN play type text -> (outcome, on_target)
+SHOT_TYPES: dict[str, tuple[str, bool]] = {
+    "Shot Off Target": ("off_target", False),
+    "Shot Blocked": ("blocked", False),
+    "Shot On Target": ("saved", True),
+    "Shot Hit Woodwork": ("woodwork", False),
+    "Goal": ("goal", True),
+    "Goal - Header": ("goal", True),
+    "Goal - Free-kick": ("goal", True),
+    "Penalty - Scored": ("goal", True),
+    "Own Goal": ("own_goal", False),
+}
+
+_BODY = [
+    ("header", re.compile(r"\bheader\b", re.I)),
+    ("right_foot", re.compile(r"right footed", re.I)),
+    ("left_foot", re.compile(r"left footed", re.I)),
+]
+_ZONE = re.compile(
+    r"from (?:the )?((?:very )?close range"
+    r"|(?:the )?(?:centre|right|left)(?: side)? of the (?:six yard box|box)"
+    r"|(?:a )?difficult angle(?: and long range| on the (?:right|left))?|outside the box|long range"
+    r"|more than 35 yards|the (?:right|left) wing|very close range)",
+    re.I,
+)
+_CROSS = re.compile(r"with a cross", re.I)
+_THROUGH = re.compile(r"through ball", re.I)
+
+
+def _situation(play_type: str, text: str) -> str:
+    if play_type == "Penalty - Scored" or "converts the penalty" in text:
+        return "penalty"
+    if play_type == "Goal - Free-kick" or "free kick" in text.lower():
+        return "free_kick"
+    if "following a corner" in text.lower():
+        return "from_corner"
+    return "open_play"
+
+
+def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry in summary.get("commentary", []):
+        play = entry.get("play")
+        if not play:
+            continue
+        ptype = play.get("type", {}).get("text")
+        if ptype not in SHOT_TYPES:
+            continue
+        outcome, on_target = SHOT_TYPES[ptype]
+        text = play.get("text") or entry.get("text") or ""
+        parts = [p["athlete"]["displayName"] for p in play.get("participants", []) if p.get("athlete")]
+        body = next((n for n, rx in _BODY if rx.search(text)), "other")
+        zone = _ZONE.search(text)
+        rows.append(
+            {
+                "league": league,
+                "event_id": str(event_id),
+                "play_id": str(play["id"]),
+                "period": (play.get("period") or {}).get("number"),
+                "seconds": (play.get("clock") or {}).get("value"),
+                "wallclock": play.get("wallclock"),
+                "team": (play.get("team") or {}).get("displayName"),
+                "player": parts[0] if parts else None,
+                "assist_player": parts[1] if len(parts) > 1 and outcome != "own_goal" else None,
+                "outcome": outcome,
+                "on_target": on_target,
+                "is_goal": outcome == "goal",
+                "body_part": body,
+                "situation": _situation(ptype, text),
+                "assist_is_cross": bool(_CROSS.search(text)),
+                "assist_is_through_ball": bool(_THROUGH.search(text)),
+                "zone_text": zone.group(1).lower() if zone else None,
+                "x": play.get("fieldPositionX"),
+                "y": play.get("fieldPositionY"),
+                "goal_y": play.get("goalPositionY"),
+                "raw_text": text,
+            }
+        )
+    return rows

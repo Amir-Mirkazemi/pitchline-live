@@ -1,0 +1,104 @@
+version: 2
+
+models:
+  - name: dim_match
+    description: One row per match with result fields.
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+
+  - name: dim_team
+    columns:
+      - name: team_id
+        tests: [unique, not_null]
+
+  - name: dim_player
+    columns:
+      - name: player_id
+        tests: [unique, not_null]
+
+  - name: fct_shots
+    description: One row per shot, including penalty-shootout shots (flagged by is_shootout).
+    columns:
+      - name: shot_id
+        tests: [unique, not_null]
+      - name: xg
+        description: StatsBomb expected goals for the shot, 0 to 1.
+        tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "xg between 0 and 1"
+      - name: outcome
+        tests: [not_null]
+
+  - name: fct_chances
+    description: Shots set up directly by a pass, with the passer credited (xG assisted).
+    columns:
+      - name: shot_id
+        tests: [unique, not_null]
+      - name: creator_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: "ref('dim_player')"
+                field: player_id
+      - name: shooter_id
+        tests:
+          - relationships:
+              arguments:
+                to: "ref('dim_player')"
+                field: player_id
+
+  - name: fct_player_match
+    description: One row per player per match played, with approximate minutes.
+    tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [match_id, player_id]
+    columns:
+      - name: minutes
+        tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "minutes between 0 and 130"
+      - name: passes_completed
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "passes_completed <= passes"
+
+  - name: fct_team_match
+    description: One row per team per match, with opponent numbers.
+    tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [match_id, team_id]
+
+  - name: mart_chance_creators
+    description: Chance creation per player per competition. Use the per-90 columns to compare players.
+    tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [player_id, competition_label]
+    columns:
+      - name: xg_assisted
+        description: Sum of xG of shots this player's passes directly set up.
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "xg_assisted >= 0"
+      - name: pass_completion_pct
+        tests:
+          - expression_is_true:
+              arguments:
+                expression: "pass_completion_pct between 0 and 100"
+
+  - name: mart_team_performance
+    description: Goals and xG for/against per team per competition.
+    tests:
+      - unique_combination:
+          arguments:
+            combination_of_columns: [team_id, competition_label]

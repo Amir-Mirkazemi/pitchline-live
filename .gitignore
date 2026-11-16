@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+data/
+warehouse/
+health/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+*.duckdb
+*.duckdb.wal
+.env
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

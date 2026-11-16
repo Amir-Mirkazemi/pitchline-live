@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: stg_matches
+    description: One row per match, typed and lightly renamed from bronze.
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: competition_label
+        tests: [not_null]
+      - name: home_score
+        tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "home_score >= 0"
+      - name: away_score
+        tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "away_score >= 0"
+
+  - name: stg_events
+    description: One row per on-ball event for every loaded match.
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: "ref('stg_matches')"
+                field: match_id
+      - name: event_type
+        tests: [not_null]
+      - name: period
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+
+  - name: stg_lineups
+    description: Starting XI per match.
+    columns:
+      - name: player_id
+        tests: [not_null]

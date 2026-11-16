@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt && pip install -e .
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests
+        run: pytest -q
+      - name: Sample pipeline (3 matches) with all dbt tests
+        run: make sample
+      - name: App smoke test against the built warehouse
+        run: pytest -q tests/test_app.py
+      - name: dbt docs
+        run: cd dbt && dbt docs generate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: dbt/target/*.json
+
+  dag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Airflow (same version as the Docker image)
+        run: |
+          pip install "apache-airflow==3.0.0" pytest \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.0.0/constraints-3.12.txt"
+      - name: DAG imports and has the expected shape
+        run: pytest -q tests/test_dag.py

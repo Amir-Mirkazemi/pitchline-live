@@ -1,0 +1,19 @@
+# One-container Airflow for local use (`airflow standalone`). Run from the repo root:
+#   echo AIRFLOW_UID=$(id -u) > orchestration/.env && docker compose -f orchestration/docker-compose.yml up --build
+services:
+  airflow:
+    build:
+      context: ..
+      dockerfile: orchestration/Dockerfile
+    command: standalone
+    user: "${AIRFLOW_UID:-50000}:0"
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/pitchline/orchestration/dags
+      # To keep raw/bronze data in S3 instead of the local folder, set these and pass AWS credentials:
+      # PITCHLINE_ROOT: s3://YOUR-BUCKET/pitchline
+      # PITCHLINE_BRONZE: s3://YOUR-BUCKET/pitchline/bronze
+    volumes:
+      - ..:/opt/pitchline

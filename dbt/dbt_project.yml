@@ -1,0 +1,21 @@
+name: pitchline
+version: "0.1.0"
+config-version: 2
+profile: pitchline
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  pitchline:
+    staging:
+      # Tables, not views, so the .duckdb file is self-contained (no dependency on Parquet paths).
+      +materialized: table
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table
+
+flags:
+  send_anonymous_usage_stats: false
