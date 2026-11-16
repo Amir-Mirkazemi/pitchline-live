@@ -80,3 +80,22 @@ def test_time_budget_stops_cleanly(tmp_path):
                      make_fetch(_summary(3, 1)), sleep=lambda s: None, max_minutes=1,
                      clock=lambda: next(ticks))
     assert st["stopped_early"] is True and st["new"] == 0
+
+
+def test_retry_bad_refetches_only_non_ok(tmp_path):
+    store = LocalStore(tmp_path)
+    args = (store, "eng.1", date(2024, 1, 1), date(2024, 1, 1))
+    eb.backfill(*args, make_fetch(_summary(5, 2, boxscore_total=9)), sleep=lambda s: None)  # mismatch
+    st = eb.backfill(*args, make_fetch(_summary(5, 2)), sleep=lambda s: None, retry_bad=True)
+    assert st["new"] == 1 and st["ok"] == 1                                               # refetched, now ok
+    log = []
+    eb.backfill(*args, make_fetch(_summary(5, 2), log), sleep=lambda s: None, retry_bad=True)
+    assert not any("summary" in u for u in log)                                           # ok -> not refetched
+
+
+def test_mismatch_detail_names_teams_and_counts():
+    shots = [{"team": "Home", "outcome": "saved", "on_target": True}]
+    detail = []
+    tot = {"Home": {"totalShots": "4", "shotsOnTarget": "2", "blockedShots": "1"}}
+    assert eb.reconcile(shots, tot, detail) == "mismatch"
+    assert "parsed total/on=(1, 1)" in detail[0] and "boxscore total/on=('4', '2')" in detail[0]

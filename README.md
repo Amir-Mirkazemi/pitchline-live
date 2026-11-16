@@ -125,7 +125,9 @@ player shot and chance creation totals across years and updates as matches finis
 
 **Built and tested**
 - ESPN commentary parser: one row per shot with location, body part, situation, assister.
-  Parsed shot, on-target and blocked counts reconcile with ESPN's own boxscore totals on the sample matches.
+  On 7 hand-picked sample matches (one per league) the parsed shot and on-target counts match ESPN's own
+  boxscore totals exactly. A first live run of 15 Premier League matches reconciled only 4 of 15, so the
+  pipeline now records a coverage flag per match and logs why a match does not reconcile (under investigation).
 - xG estimator calibrated to StatsBomb xG, validated leave-one-competition-out
   (competition totals within about 3%, about 0.04 error per shot).
 - Resumable, rate-limit-aware backfills (ESPN, and API-Football for the Saudi Pro League)

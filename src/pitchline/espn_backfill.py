@@ -63,24 +63,30 @@ def _totals(summary: dict) -> dict[str, dict]:
     return out
 
 
-def reconcile(shots: list[dict], totals: dict[str, dict]) -> str:
+def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = None) -> str:
     if not totals or all(v["totalShots"] is None for v in totals.values()):
         return "no_boxscore"
     if not shots:
         return "no_commentary"
+    status = "ok"
+    teams_in_shots = sorted({s["team"] for s in shots if s["team"]})
     for team, tot in totals.items():
         mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
-        if str(len(mine)) != str(tot["totalShots"]):
-            return "mismatch"
-        if str(sum(1 for s in mine if s["on_target"])) != str(tot["shotsOnTarget"]):
-            return "mismatch"
-    return "ok"
+        got = (len(mine), sum(1 for s in mine if s["on_target"]))
+        want = (tot["totalShots"], tot["shotsOnTarget"])
+        if (str(got[0]), str(got[1])) != (str(want[0]), str(want[1])):
+            status = "mismatch"
+            if detail is not None:
+                detail.append(f"{team}: parsed total/on={got} boxscore total/on={want}"
+                              f" blocked={tot['blockedShots']} shot-teams={teams_in_shots}")
+    return status
 
 
-def process_event(store: Store, league: str, ev: dict, fetch) -> str | None:
+def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = False) -> str | None:
     key = f"espn/matches/{league}/{ev['id']}.json"
     if store.exists(key):
-        return None
+        if not retry_bad or json.loads(store.read_bytes(key)).get("coverage") == "ok":
+            return None
     summary, _ = fetch(f"{BASE}/{league}/summary?event={ev['id']}")
     shots = parse_shots(summary, ev["id"], league)
     comp = ev["competitions"][0]
@@ -91,13 +97,19 @@ def process_event(store: Store, league: str, ev: dict, fetch) -> str | None:
                    "score": c.get("score")} for c in comp["competitors"]],
         "boxscore_totals": _totals(summary), "shots": shots,
     }
-    rec["coverage"] = reconcile(shots, rec["boxscore_totals"])
+    detail: list[str] = []
+    rec["coverage"] = reconcile(shots, rec["boxscore_totals"], detail)
+    if rec["coverage"] != "ok":
+        log.warning("event %s %s: %s | commentary entries=%d, shots parsed=%d | %s", ev["id"],
+                    rec["coverage"], " / ".join(t["name"] for t in rec["teams"]),
+                    len(summary.get("commentary", [])), len(shots), "; ".join(detail))
     store.write_bytes(key, json.dumps(rec).encode())
     return rec["coverage"]
 
 
 def backfill(store: Store, league: str, start: date, end: date, fetch=None, sleep=time.sleep,
-             window: int = 7, max_minutes: float = 300, clock=time.monotonic) -> dict:
+             window: int = 7, max_minutes: float = 300, clock=time.monotonic,
+             retry_bad: bool = False) -> dict:
     fetch = fetch or (lambda url: get_json(url))
     t0 = clock()
     events = list_events(league, start, end, window, fetch, sleep)
@@ -107,7 +119,7 @@ def backfill(store: Store, league: str, start: date, end: date, fetch=None, slee
             stats["stopped_early"] = True
             break
         try:
-            cov = process_event(store, league, ev, fetch)
+            cov = process_event(store, league, ev, fetch, retry_bad)
         except Exception as err:  # one bad match must not stop the run
             log.error("event %s failed: %s", ev["id"], err)
             stats["failed"] += 1
@@ -130,6 +142,8 @@ def main(argv=None) -> int:
     ap.add_argument("--targets", help="YAML list of {league, from, to}; processed in order")
     ap.add_argument("--root")
     ap.add_argument("--window", type=int, default=7)
+    ap.add_argument("--retry-bad", action="store_true",
+                    help="re-download matches whose stored coverage is not 'ok'")
     ap.add_argument("--max-minutes", type=float, default=300)
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -150,7 +164,7 @@ def main(argv=None) -> int:
             log.info("time budget used up; remaining targets run next time")
             break
         stats = backfill(store, t["league"], parse(str(t["from"])), parse(str(t["to"])),
-                         window=a.window, max_minutes=left)
+                         window=a.window, max_minutes=left, retry_bad=a.retry_bad)
         bad = bad or bool(stats["failed"] and not stats["new"])
     return 1 if bad else 0
 

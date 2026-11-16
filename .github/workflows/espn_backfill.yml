@@ -14,6 +14,10 @@ on:
       to:
         description: "End date YYYY-MM-DD"
         required: false
+      retry_bad:
+        description: "Re-download matches that did not reconcile (true/false)"
+        required: false
+        default: "false"
 
 concurrency: espn-backfill
 
@@ -37,9 +41,11 @@ jobs:
           IN_LEAGUE: ${{ github.event.inputs.league }}
           IN_FROM: ${{ github.event.inputs.from }}
           IN_TO: ${{ github.event.inputs.to }}
+          IN_RETRY: ${{ github.event.inputs.retry_bad }}
         run: |
+          FLAG=""; [ "$IN_RETRY" = "true" ] && FLAG="--retry-bad"
           if [ -n "$IN_LEAGUE" ]; then
-            python -m pitchline.espn_backfill --league "$IN_LEAGUE" --from "$IN_FROM" --to "$IN_TO" --max-minutes 300
+            python -m pitchline.espn_backfill --league "$IN_LEAGUE" --from "$IN_FROM" --to "$IN_TO" --max-minutes 300 $FLAG
           else
-            python -m pitchline.espn_backfill --targets config/espn_targets.yml --max-minutes 300
+            python -m pitchline.espn_backfill --targets config/espn_targets.yml --max-minutes 300 $FLAG
           fi
