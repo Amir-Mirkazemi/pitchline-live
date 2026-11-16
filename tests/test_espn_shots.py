@@ -82,3 +82,10 @@ def test_text_only_team_name_matches_despite_ampersand_and_unknown_team_is_skipp
     s = {**_box("Brighton & Hove Albion"), "commentary": [ok, bad]}
     rows = parse_shots(s, "9", "eng.1")
     assert len(rows) == 1 and rows[0]["team"] == "Brighton & Hove Albion"
+
+
+def test_shot_typed_play_whose_text_is_a_foul_is_rejected():
+    glitch = _play("Shot On Target", "Foul by Reinildo Mandava (Sunderland).", ["Brian Brobbey"])
+    real = _play("Shot On Target", "Attempt saved. B B (Sunderland) right footed shot is saved.", ["B B"])
+    rows = parse_shots({"commentary": [glitch, real]}, "9", "eng.1")
+    assert len(rows) == 1 and rows[0]["player"] == "B B"

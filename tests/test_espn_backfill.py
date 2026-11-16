@@ -131,3 +131,11 @@ def test_suspicious_lines_flags_unparsed_and_duplicate_shots():
     out = eb.suspicious_lines(s, parse_shots(s, "9", "eng.1"))
     assert any("UNPARSED" in line and "hits the bar" in line for line in out)
     assert any("DUPLICATE?" in line for line in out)
+
+
+def test_inconsistent_shot_typed_play_is_reported():
+    from pitchline.espn_shots import parse_shots
+    bad = _shot("5", "Home", "Shot On Target", text="Foul by X (Home).")
+    s = {"commentary": [bad]}
+    out = eb.suspicious_lines(s, parse_shots(s, "9", "eng.1"))
+    assert any("INCONSISTENT" in line for line in out)

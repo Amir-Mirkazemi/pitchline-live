@@ -58,6 +58,16 @@ def _situation(play_type: str, text: str) -> str:
     return "open_play"
 
 
+# A structured "shot" play whose text is not about a shot is an ESPN data glitch
+# (seen: play typed "Shot On Target" with the text "Foul by ... (Sunderland)."). Such plays are rejected.
+_SHOT_WORDS = ("attempt", "goal", "penalty", "hits the", "converts", "header", "shot")
+
+
+def looks_like_shot(text: str) -> bool:
+    t = text.lower()
+    return any(w in t for w in _SHOT_WORDS)
+
+
 def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower().replace("&", "and"))
 
@@ -107,6 +117,8 @@ def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dic
         ptype = play.get("type", {}).get("text")
         text = play.get("text") or entry.get("text") or ""
         if ptype in SHOT_TYPES:
+            if not looks_like_shot(text):
+                continue
             outcome, on_target = SHOT_TYPES[ptype]
         else:
             hit = next((v for p, v in _TEXT_PREFIX if text.startswith(p)), None)
