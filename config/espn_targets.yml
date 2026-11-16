@@ -1,6 +1,7 @@
 # Backfill targets, processed in order. Safe to extend: finished matches are never re-downloaded.
 # Start small, confirm the coverage numbers, then widen.
 targets:
+  - {league: eng.1, from: 2026-08-01, to: 2027-06-30}   # current season first
   - {league: eng.1, from: 2025-08-01, to: 2026-06-30}
   - {league: eng.1, from: 2024-08-01, to: 2025-06-30}
   - {league: eng.1, from: 2023-08-01, to: 2024-06-30}

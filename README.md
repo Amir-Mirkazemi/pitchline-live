@@ -124,10 +124,13 @@ Pitchline is being extended from a one-tournament demo into a multi-league pipel
 player shot and chance creation totals across years and updates as matches finish.
 
 **Built and tested**
-- ESPN commentary parser: one row per shot with location, body part, situation, assister.
-  On 7 hand-picked sample matches (one per league) the parsed shot and on-target counts match ESPN's own
-  boxscore totals exactly. A first live run of 15 Premier League matches reconciled only 4 of 15, so the
-  pipeline now records a coverage flag per match and logs why a match does not reconcile (under investigation).
+- ESPN commentary parser: one row per shot with location (when ESPN provides it), body part, situation,
+  assister. Each match is reconciled against ESPN's own boxscore total shots and flagged `ok` or
+  `mismatch`; mismatches are logged with the lines that explain them. On a live run over all 110
+  Premier League matches from 2025-08-01 to 2025-11-15, 110 of 110 reconcile on total shots
+  (the first live run reconciled 4 of 15; the gap was ESPN data quirks, fixed one by one with tests).
+  Known limit: ESPN counts some blocked shots as on target in its own stats, so Shots on Target uses
+  ESPN's per-player roster stats, not the commentary.
 - xG estimator calibrated to StatsBomb xG, validated leave-one-competition-out
   (competition totals within about 3%, about 0.04 error per shot).
 - Resumable, rate-limit-aware backfills (ESPN, and API-Football for the Saudi Pro League)
