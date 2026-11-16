@@ -145,3 +145,11 @@ def test_foul_and_var_penalty_lines_are_not_flagged_as_unparsed():
     foul = {"text": "Penalty conceded by X (Home) after a foul in the penalty area.",
             "play": {"id": "8", "type": {"text": "Foul"}}}
     assert eb.suspicious_lines({"commentary": [foul]}, []) == []
+
+
+def test_text_only_parsed_shot_is_not_flagged_as_unparsed():
+    from pitchline.espn_shots import parse_shots
+    line = {"sequence": 7, "text": "Attempt missed. J K (Bournemouth) left footed shot is wide.", "time": {"value": 9.0}}
+    s = {"boxscore": {"teams": [{"team": {"displayName": "AFC Bournemouth"}}]}, "commentary": [line]}
+    shots = parse_shots(s, "9", "eng.1")
+    assert len(shots) == 1 and eb.suspicious_lines(s, shots) == []

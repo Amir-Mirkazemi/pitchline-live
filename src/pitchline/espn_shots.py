@@ -52,6 +52,29 @@ _CROSS = re.compile(r"with a cross", re.I)
 _THROUGH = re.compile(r"through ball", re.I)
 
 
+_NOT_A_GOAL = ("disallow", "cancel", "chalked", "no goal")
+
+
+def classify_type(play_type: str | None) -> tuple[str, bool] | None:
+    """Outcome for a structured play type. Any "Goal - <how>" subtype (Volley, Header, Free-kick,
+    Penalty, ...) is a goal, except disallowed/cancelled ones. "Goal Kick" is not a shot."""
+    if not play_type:
+        return None
+    if play_type in SHOT_TYPES:
+        return SHOT_TYPES[play_type]
+    if play_type.startswith("Goal - ") and not any(w in play_type.lower() for w in _NOT_A_GOAL):
+        return ("goal", True)
+    return None
+
+
+def entry_play_id(entry: dict) -> str:
+    """Id under which a commentary entry is stored: the play id, or text:<sequence> for text-only shots."""
+    play = entry.get("play")
+    if play:
+        return str(play.get("id", ""))
+    return f"text:{entry.get('sequence')}"
+
+
 def _situation(play_type: str, text: str) -> str:
     if play_type.startswith("Penalty") or text.startswith("Penalty") or "converts the penalty" in text:
         return "penalty"
@@ -76,6 +99,18 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower().replace("&", "and"))
 
 
+def resolve_team(name: str, team_names: dict[str, str]) -> str | None:
+    """Match a team name from commentary text to a boxscore team. Exact (normalised) first, then a
+    unique containment match ("Bournemouth" in "AFC Bournemouth"); ambiguous matches return None."""
+    key = _norm(name)
+    if key in team_names:
+        return team_names[key]
+    if len(key) < 4:
+        return None
+    hits = [v for k, v in team_names.items() if key in k or k in key]
+    return hits[0] if len(hits) == 1 else None
+
+
 _TEXT_SHOT = re.compile(r"^(?:Attempt|Penalty) (missed|saved|blocked)\. (.+?) \((.+?)\) ")
 _ASSIST = re.compile(r"Assisted by (.+?)(?: with | following |\.|$)")
 _TEXT_OUTCOME = {"missed": ("off_target", False), "saved": ("saved", True), "blocked": ("blocked", False)}
@@ -88,7 +123,7 @@ def _text_only_shot(entry: dict, team_names: dict[str, str], event_id: str, leag
     if not m:
         return None
     kind, player, team_txt = m.groups()
-    team = team_names.get(_norm(team_txt))
+    team = resolve_team(team_txt, team_names)
     if team is None:
         return None
     outcome, on_target = _TEXT_OUTCOME[kind]
@@ -97,7 +132,7 @@ def _text_only_shot(entry: dict, team_names: dict[str, str], event_id: str, leag
     assist = _ASSIST.search(text)
     t = entry.get("time") or {}
     return {
-        "league": league, "event_id": str(event_id), "play_id": f"text:{entry.get('sequence')}",
+        "league": league, "event_id": str(event_id), "play_id": entry_play_id(entry),
         "period": None, "seconds": t.get("value"), "wallclock": None, "team": team, "player": player,
         "assist_player": assist.group(1) if assist else None, "outcome": outcome, "on_target": on_target,
         "is_goal": False, "body_part": body, "situation": _situation("", text),
@@ -120,10 +155,11 @@ def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dic
             continue
         ptype = play.get("type", {}).get("text")
         text = play.get("text") or entry.get("text") or ""
-        if ptype in SHOT_TYPES:
+        typed = classify_type(ptype)
+        if typed is not None:
             if not looks_like_shot(text):
                 continue
-            outcome, on_target = SHOT_TYPES[ptype]
+            outcome, on_target = typed
         else:
             hit = next((v for p, v in _TEXT_PREFIX if text.startswith(p)), None)
             if hit is None:

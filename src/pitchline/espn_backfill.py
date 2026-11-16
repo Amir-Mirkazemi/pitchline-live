@@ -15,7 +15,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 
-from .espn_shots import SHOT_TYPES, parse_shots
+from .espn_shots import classify_type, entry_play_id, parse_shots
 from .http import HttpStatus, get_json
 from .storage import Store, get_store
 
@@ -129,8 +129,8 @@ def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
     for e in summary.get("commentary", []):
         p = e.get("play") or {}
         text = e.get("text") or ""
-        pid = str(p.get("id", ""))
-        if pid not in parsed and (p.get("type") or {}).get("text") in SHOT_TYPES:
+        pid = entry_play_id(e)
+        if pid not in parsed and classify_type((p.get("type") or {}).get("text")) is not None:
             ptype = (p.get("type") or {}).get("text")
             out.append(f"INCONSISTENT play typed {ptype!r} but text={text[:120]!r}")
         elif pid not in parsed and (text.lower().startswith(_SHOTLIKE) or _WOODWORK.search(text.lower())):

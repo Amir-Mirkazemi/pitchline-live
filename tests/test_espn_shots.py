@@ -111,3 +111,24 @@ def test_penalty_foul_and_var_lines_are_not_shots():
     foul = _play("Foul", "Penalty conceded by X (Home) after a foul in the penalty area.", ["X"])
     var = _play("VAR - Referee decision cancelled", "VAR Decision: Penalty Home.", ["Y"])
     assert parse_shots({"commentary": [foul, var]}, "9", "eng.1") == []
+
+
+def test_any_goal_subtype_counts_as_a_goal_but_goal_kick_and_disallowed_do_not():
+    volley = _play("Goal - Volley", "Goal! A 1, B 0. X (Home) right footed shot from the box. Assisted by Y.", ["X", "Y"])
+    kick = _play("Goal Kick", "Goal kick awarded to Home.", ["Z"])
+    off = _play("Goal - Disallowed", "Goal! disallowed. W (Home) shot.", ["W"])
+    rows = parse_shots({"commentary": [volley, kick, off]}, "9", "eng.1")
+    assert [(r["player"], r["outcome"], r["is_goal"], r["on_target"]) for r in rows] == [("X", "goal", True, True)]
+
+
+def test_text_only_team_name_matches_by_unique_containment():
+    line = {"sequence": 3, "text": "Attempt missed. J K (Bournemouth) left footed shot is high and wide.",
+            "time": {"value": 120.0}}
+    s = {**_box("AFC Bournemouth", "Wolverhampton Wanderers"), "commentary": [line]}
+    assert parse_shots(s, "9", "eng.1")[0]["team"] == "AFC Bournemouth"
+
+
+def test_ambiguous_containment_does_not_guess_a_team():
+    line = {"sequence": 4, "text": "Attempt missed. J K (Real) shot is wide.", "time": {"value": 10.0}}
+    s = {**_box("Real Madrid", "Real Sociedad"), "commentary": [line]}
+    assert parse_shots(s, "9", "esp.1") == []
