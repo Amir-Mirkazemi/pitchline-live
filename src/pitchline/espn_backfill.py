@@ -63,7 +63,26 @@ def _totals(summary: dict) -> dict[str, dict]:
     return out
 
 
+def _players(summary: dict) -> list[dict]:
+    """ESPN's own per-player match stats (authoritative for shots / shots on target / goals / assists)."""
+    out = []
+    for r in summary.get("rosters", []):
+        team = (r.get("team") or {}).get("displayName")
+        for pl in r.get("roster", []):
+            st = {s["name"]: s.get("value") for s in pl.get("stats", [])}
+            row = {"team": team, "player": (pl.get("athlete") or {}).get("displayName"),
+                   "shots": int(st.get("totalShots") or 0),
+                   "shots_on_target": int(st.get("shotsOnTarget") or 0),
+                   "goals": int(st.get("totalGoals") or 0), "assists": int(st.get("goalAssists") or 0),
+                   "own_goals": int(st.get("ownGoals") or 0)}
+            if any(row[k] for k in ("shots", "shots_on_target", "goals", "assists", "own_goals")):
+                out.append(row)
+    return out
+
+
 def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = None) -> str:
+    """Strict check on TOTAL shots per team. On-target is deliberately not part of the check:
+    ESPN counts some blocked shots as on target in its own stats while commentary only says 'blocked'."""
     if not totals or all(v["totalShots"] is None for v in totals.values()):
         return "no_boxscore"
     if not shots:
@@ -72,14 +91,24 @@ def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = 
     teams_in_shots = sorted({s["team"] for s in shots if s["team"]})
     for team, tot in totals.items():
         mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
-        got = (len(mine), sum(1 for s in mine if s["on_target"]))
-        want = (tot["totalShots"], tot["shotsOnTarget"])
-        if (str(got[0]), str(got[1])) != (str(want[0]), str(want[1])):
+        if str(len(mine)) != str(tot["totalShots"]):
             status = "mismatch"
             if detail is not None:
-                detail.append(f"{team}: parsed total/on={got} boxscore total/on={want}"
-                              f" blocked={tot['blockedShots']} shot-teams={teams_in_shots}")
+                detail.append(f"{team}: parsed total={len(mine)} boxscore total={tot['totalShots']}"
+                              f" shot-teams={teams_in_shots}")
     return status
+
+
+def on_target_gap(shots: list[dict], totals: dict[str, dict]) -> int:
+    """Boxscore on-target minus commentary on-target, summed over teams (informational)."""
+    gap = 0
+    for team, tot in totals.items():
+        mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
+        try:
+            gap += int(tot["shotsOnTarget"]) - sum(1 for s in mine if s["on_target"])
+        except (TypeError, ValueError):
+            pass
+    return gap
 
 
 def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = False) -> str | None:
@@ -95,8 +124,9 @@ def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = 
         "season": (ev.get("season") or {}).get("year"),
         "teams": [{"name": c["team"]["displayName"], "home": c["homeAway"] == "home",
                    "score": c.get("score")} for c in comp["competitors"]],
-        "boxscore_totals": _totals(summary), "shots": shots,
+        "boxscore_totals": _totals(summary), "shots": shots, "players": _players(summary),
     }
+    rec["on_target_gap"] = on_target_gap(shots, rec["boxscore_totals"])
     detail: list[str] = []
     rec["coverage"] = reconcile(shots, rec["boxscore_totals"], detail)
     if rec["coverage"] != "ok":

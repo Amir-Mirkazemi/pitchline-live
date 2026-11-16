@@ -46,3 +46,16 @@ def test_own_goal_never_credits_assist_and_non_shots_ignored():
     ]}
     rows = parse_shots(s, "9", "ita.1")
     assert len(rows) == 1 and rows[0]["outcome"] == "own_goal" and rows[0]["on_target"] is False
+
+
+def test_direct_free_kick_attempt_typed_free_kick_is_still_a_shot():
+    line = ("Attempt missed. M D (Brentford) right footed shot from outside the box "
+            "is too high from a direct free kick.")
+    s = {"commentary": [_play("Free Kick", line, ["M D"])]}
+    r = parse_shots(s, "9", "eng.1")[0]
+    assert r["outcome"] == "off_target" and r["player"] == "M D" and r["situation"] == "free_kick"
+
+
+def test_non_shot_free_kick_lines_are_ignored():
+    s = {"commentary": [_play("Free Kick", "Free kick awarded to Home.", ["X"])]}
+    assert parse_shots(s, "9", "eng.1") == []

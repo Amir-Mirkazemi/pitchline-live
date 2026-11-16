@@ -24,6 +24,14 @@ SHOT_TYPES: dict[str, tuple[str, bool]] = {
     "Own Goal": ("own_goal", False),
 }
 
+# Some shot lines carry another play type (e.g. a direct free-kick attempt is typed "Free Kick"),
+# so lines are also classified by their text prefix.
+_TEXT_PREFIX: list[tuple[str, tuple[str, bool]]] = [
+    ("Attempt missed", ("off_target", False)),
+    ("Attempt saved", ("saved", True)),
+    ("Attempt blocked", ("blocked", False)),
+]
+
 _BODY = [
     ("header", re.compile(r"\bheader\b", re.I)),
     ("right_foot", re.compile(r"right footed", re.I)),
@@ -57,10 +65,14 @@ def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dic
         if not play:
             continue
         ptype = play.get("type", {}).get("text")
-        if ptype not in SHOT_TYPES:
-            continue
-        outcome, on_target = SHOT_TYPES[ptype]
         text = play.get("text") or entry.get("text") or ""
+        if ptype in SHOT_TYPES:
+            outcome, on_target = SHOT_TYPES[ptype]
+        else:
+            hit = next((v for p, v in _TEXT_PREFIX if text.startswith(p)), None)
+            if hit is None:
+                continue
+            outcome, on_target = hit
         parts = [p["athlete"]["displayName"] for p in play.get("participants", []) if p.get("athlete")]
         body = next((n for n, rx in _BODY if rx.search(text)), "other")
         zone = _ZONE.search(text)

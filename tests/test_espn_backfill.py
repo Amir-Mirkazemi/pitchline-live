@@ -98,4 +98,27 @@ def test_mismatch_detail_names_teams_and_counts():
     detail = []
     tot = {"Home": {"totalShots": "4", "shotsOnTarget": "2", "blockedShots": "1"}}
     assert eb.reconcile(shots, tot, detail) == "mismatch"
-    assert "parsed total/on=(1, 1)" in detail[0] and "boxscore total/on=('4', '2')" in detail[0]
+    assert "parsed total=1" in detail[0] and "boxscore total=4" in detail[0]
+
+
+def test_on_target_difference_alone_is_not_a_mismatch():
+    # ESPN counts some blocked shots as on target; commentary says only "blocked".
+    shots = [{"team": "Home", "outcome": "blocked", "on_target": False}]
+    tot = {"Home": {"totalShots": "1", "shotsOnTarget": "1", "blockedShots": "1"}}
+    assert eb.reconcile(shots, tot) == "ok"
+    assert eb.on_target_gap(shots, tot) == 1
+
+
+def test_player_stats_from_espn_are_stored(tmp_path):
+    summary = _summary(2, 1)
+    summary["rosters"] = [{"team": {"displayName": "Home"}, "roster": [
+        {"athlete": {"displayName": "A"}, "stats": [{"name": "totalShots", "value": 2.0},
+                                                    {"name": "shotsOnTarget", "value": 2.0}]},
+        {"athlete": {"displayName": "Bench"}, "stats": [{"name": "totalShots", "value": 0.0}]}]}]
+    store = LocalStore(tmp_path)
+    eb.backfill(store, "eng.1", date(2024, 1, 1), date(2024, 1, 1), make_fetch(summary), sleep=lambda s: None)
+    import json
+    rec = json.loads(store.read_bytes("espn/matches/eng.1/1.json"))
+    assert rec["players"] == [{"team": "Home", "player": "A", "shots": 2, "shots_on_target": 2,
+                               "goals": 0, "assists": 0, "own_goals": 0}]
+    assert rec["on_target_gap"] == 0
