@@ -139,3 +139,9 @@ def test_inconsistent_shot_typed_play_is_reported():
     s = {"commentary": [bad]}
     out = eb.suspicious_lines(s, parse_shots(s, "9", "eng.1"))
     assert any("INCONSISTENT" in line for line in out)
+
+
+def test_foul_and_var_penalty_lines_are_not_flagged_as_unparsed():
+    foul = {"text": "Penalty conceded by X (Home) after a foul in the penalty area.",
+            "play": {"id": "8", "type": {"text": "Foul"}}}
+    assert eb.suspicious_lines({"commentary": [foul]}, []) == []

@@ -89,3 +89,25 @@ def test_shot_typed_play_whose_text_is_a_foul_is_rejected():
     real = _play("Shot On Target", "Attempt saved. B B (Sunderland) right footed shot is saved.", ["B B"])
     rows = parse_shots({"commentary": [glitch, real]}, "9", "eng.1")
     assert len(rows) == 1 and rows[0]["player"] == "B B"
+
+
+def test_saved_penalty_is_a_shot_on_target_with_penalty_situation():
+    line = "Penalty saved. A S (Bournemouth) right footed shot saved in the bottom left corner by E M (Aston Villa)."
+    r = parse_shots({"commentary": [_play("Penalty - Saved", line, ["A S", "E M"])]}, "9", "eng.1")[0]
+    assert (r["outcome"], r["on_target"], r["situation"], r["is_goal"]) == ("saved", True, "penalty", False)
+
+
+def test_missed_penalty_and_text_only_penalty_line():
+    miss = "Penalty missed! X (Home) right footed shot misses to the left."
+    r = parse_shots({"commentary": [_play("Penalty - Missed", miss, ["X"])]}, "9", "eng.1")[0]
+    assert r["outcome"] == "off_target" and r["situation"] == "penalty"
+    text_only = {"sequence": 5, "text": "Penalty saved. Z (Home) left footed shot saved in the centre by K (Away).",
+                 "time": {"value": 3000.0}}
+    rows = parse_shots({**_box("Home", "Away"), "commentary": [text_only]}, "9", "eng.1")
+    assert rows[0]["outcome"] == "saved" and rows[0]["has_location"] is False
+
+
+def test_penalty_foul_and_var_lines_are_not_shots():
+    foul = _play("Foul", "Penalty conceded by X (Home) after a foul in the penalty area.", ["X"])
+    var = _play("VAR - Referee decision cancelled", "VAR Decision: Penalty Home.", ["Y"])
+    assert parse_shots({"commentary": [foul, var]}, "9", "eng.1") == []

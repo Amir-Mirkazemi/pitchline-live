@@ -21,6 +21,8 @@ SHOT_TYPES: dict[str, tuple[str, bool]] = {
     "Goal - Header": ("goal", True),
     "Goal - Free-kick": ("goal", True),
     "Penalty - Scored": ("goal", True),
+    "Penalty - Saved": ("saved", True),
+    "Penalty - Missed": ("off_target", False),
     "Own Goal": ("own_goal", False),
 }
 
@@ -30,6 +32,8 @@ _TEXT_PREFIX: list[tuple[str, tuple[str, bool]]] = [
     ("Attempt missed", ("off_target", False)),
     ("Attempt saved", ("saved", True)),
     ("Attempt blocked", ("blocked", False)),
+    ("Penalty saved", ("saved", True)),
+    ("Penalty missed", ("off_target", False)),
 ]
 
 _BODY = [
@@ -49,7 +53,7 @@ _THROUGH = re.compile(r"through ball", re.I)
 
 
 def _situation(play_type: str, text: str) -> str:
-    if play_type == "Penalty - Scored" or "converts the penalty" in text:
+    if play_type.startswith("Penalty") or text.startswith("Penalty") or "converts the penalty" in text:
         return "penalty"
     if play_type == "Goal - Free-kick" or "free kick" in text.lower():
         return "free_kick"
@@ -72,7 +76,7 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower().replace("&", "and"))
 
 
-_TEXT_SHOT = re.compile(r"^Attempt (missed|saved|blocked)\. (.+?) \((.+?)\) ")
+_TEXT_SHOT = re.compile(r"^(?:Attempt|Penalty) (missed|saved|blocked)\. (.+?) \((.+?)\) ")
 _ASSIST = re.compile(r"Assisted by (.+?)(?: with | following |\.|$)")
 _TEXT_OUTCOME = {"missed": ("off_target", False), "saved": ("saved", True), "blocked": ("blocked", False)}
 

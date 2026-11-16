@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import time
 from datetime import date, datetime, timedelta
 
@@ -115,7 +116,10 @@ def on_target_gap(shots: list[dict], totals: dict[str, dict]) -> int:
     return gap
 
 
-_SHOTLIKE = ("attempt", "goal", "penalty", "woodwork", "hits the", "own goal", "shot")
+# Prefixes of commentary lines that describe a shot. Fouls, VAR and handball lines that merely mention
+# a penalty are deliberately not matched, to keep the diagnostics readable.
+_SHOTLIKE = ("attempt", "goal!", "penalty saved", "penalty missed", "own goal")
+_WOODWORK = re.compile(r"\bhits? the .*\b(post|bar|woodwork)\b")
 
 
 def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
@@ -129,7 +133,7 @@ def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
         if pid not in parsed and (p.get("type") or {}).get("text") in SHOT_TYPES:
             ptype = (p.get("type") or {}).get("text")
             out.append(f"INCONSISTENT play typed {ptype!r} but text={text[:120]!r}")
-        elif pid not in parsed and any(k in text.lower() for k in _SHOTLIKE):
+        elif pid not in parsed and (text.lower().startswith(_SHOTLIKE) or _WOODWORK.search(text.lower())):
             out.append(f"UNPARSED type={(p.get('type') or {}).get('text')!r} text={text[:150]!r}")
     seen: dict[tuple, int] = {}
     for sh in shots:
