@@ -6,6 +6,13 @@ on:
       league:
         description: "ESPN league slug (leave empty for every stored league)"
         required: false
+      top:
+        description: "How many players per league (default 10)"
+        required: false
+        default: "10"
+      player:
+        description: "Look up one player by name instead, e.g. Haaland (leave empty for the leaderboards)"
+        required: false
 
 jobs:
   leaderboard:
@@ -24,9 +31,13 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
           PITCHLINE_ROOT: s3://${{ vars.S3_BUCKET }}/pitchline
           IN_LEAGUE: ${{ github.event.inputs.league }}
+          IN_TOP: ${{ github.event.inputs.top }}
+          IN_PLAYER: ${{ github.event.inputs.player }}
         run: |
-          if [ -n "$IN_LEAGUE" ]; then
-            python -m pitchline.leaderboard --league "$IN_LEAGUE" --top 10
+          ARGS="--top ${IN_TOP:-10}"
+          [ -n "$IN_LEAGUE" ] && ARGS="$ARGS --league $IN_LEAGUE"
+          if [ -n "$IN_PLAYER" ]; then
+            python -m pitchline.leaderboard $ARGS --player "$IN_PLAYER"
           else
-            python -m pitchline.leaderboard --top 10
+            python -m pitchline.leaderboard $ARGS
           fi

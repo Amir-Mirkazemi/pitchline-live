@@ -42,3 +42,17 @@ def test_team_is_the_latest_one_and_markdown_renders(tmp_path):
     assert players[("eng.1", "X")]["team"] == "New FC"
     md = lb.markdown(players, cov, 5)
     assert "| 1 | X | New FC | 2 | 2 | 1 | 0 | 0 |" in md and "2 matches stored" in md
+
+
+def test_player_search_ignores_case_and_accents_and_spans_leagues(tmp_path):
+    s = LocalStore(tmp_path)
+    _put(s, "eng.1", "1", "2025-08-16", [_p("City", "Erling Haaland", 5, 3), _p("A", "Other", 1, 1)])
+    _put(s, "uefa.champions", "2", "2025-09-16", [_p("City", "Erling Haaland", 3, 3)])
+    _put(s, "esp.1", "3", "2025-09-20", [_p("Real", "Kylian Mbappé", 4, 2)])
+    players, _ = lb.load_totals(s)
+    rows = lb.find_players(players, "haaland")
+    assert [(r["league"], r["shots_on_target"]) for r in rows] == [("uefa.champions", 3), ("eng.1", 3)] or \
+           [(r["league"], r["shots_on_target"]) for r in rows] == [("eng.1", 3), ("uefa.champions", 3)]
+    assert len(rows) == 2
+    assert [r["player"] for r in lb.find_players(players, "MBAPPE")] == ["Kylian Mbappé"]
+    assert "No player matching 'zzz'" in lb.player_markdown(lb.find_players(players, "zzz"), "zzz")

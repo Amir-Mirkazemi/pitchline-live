@@ -50,6 +50,29 @@ def top(players: dict, league: str, n: int = 10, key: str = "shots_on_target") -
     return sorted(rows, key=lambda r: (-r[key], -r["shots"], r["player"]))[:n]
 
 
+def find_players(players: dict, query: str, n: int = 25) -> list[dict]:
+    """Players whose name contains the query (case and accent insensitive), best by shots on target first."""
+    import unicodedata
+
+    def fold(t: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", t.lower()) if not unicodedata.combining(c))
+
+    q = fold(query.strip())
+    rows = [r for r in players.values() if q and q in fold(r["player"])]
+    return sorted(rows, key=lambda r: (-r["shots_on_target"], -r["shots"], r["player"]))[:n]
+
+
+def player_markdown(rows: list[dict], query: str) -> str:
+    if not rows:
+        return f"No player matching '{query}' in the stored matches."
+    out = [f"### Players matching '{query}'\n",
+           "| Player | League | Team | Matches with a stat | Shots | On target | Goals | Assists |",
+           "|---|---|---|--:|--:|--:|--:|--:|"]
+    out += [f"| {r['player']} | {r['league']} | {r['team']} | {r['matches']} | {r['shots']} | "
+            f"{r['shots_on_target']} | {r['goals']} | {r['assists']} |" for r in rows]
+    return "\n".join(out) + "\n"
+
+
 def markdown(players: dict, coverage: dict, n: int = 10) -> str:
     out = []
     for lg in sorted(coverage):
@@ -70,9 +93,13 @@ def main(argv=None) -> int:
     ap.add_argument("--root")
     ap.add_argument("--league")
     ap.add_argument("--top", type=int, default=10)
+    ap.add_argument("--player", help="show every league row for players whose name contains this text")
     a = ap.parse_args(argv)
     players, coverage = load_totals(get_store(a.root), a.league)
-    text = markdown(players, coverage, a.top) if coverage else "No matches stored yet."
+    if a.player:
+        text = player_markdown(find_players(players, a.player), a.player)
+    else:
+        text = markdown(players, coverage, a.top) if coverage else "No matches stored yet."
     print(text)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:  # shows the tables on the workflow run page
