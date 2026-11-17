@@ -132,3 +132,10 @@ def test_ambiguous_containment_does_not_guess_a_team():
     line = {"sequence": 4, "text": "Attempt missed. J K (Real) shot is wide.", "time": {"value": 10.0}}
     s = {**_box("Real Madrid", "Real Sociedad"), "commentary": [line]}
     assert parse_shots(s, "9", "esp.1") == []
+
+
+def test_free_kick_typed_shot_is_parsed_when_only_the_entry_text_has_the_prefix():
+    entry = _play("Free Kick", "L D (Brighton) right footed shot from more than 35 yards.", ["L D"])
+    entry["text"] = "Attempt missed. L D (Brighton) right footed shot from more than 35 yards misses to the left."
+    rows = parse_shots({"commentary": [entry]}, "9", "eng.1")
+    assert len(rows) == 1 and rows[0]["outcome"] == "off_target"

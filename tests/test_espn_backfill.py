@@ -153,3 +153,29 @@ def test_text_only_parsed_shot_is_not_flagged_as_unparsed():
     s = {"boxscore": {"teams": [{"team": {"displayName": "AFC Bournemouth"}}]}, "commentary": [line]}
     shots = parse_shots(s, "9", "eng.1")
     assert len(shots) == 1 and eb.suspicious_lines(s, shots) == []
+
+
+def _roster(team, shots):
+    return {"team": team, "player": "A", "shots": shots, "shots_on_target": 0, "goals": 0, "assists": 0,
+            "own_goals": 0}
+
+
+def test_empty_boxscore_falls_back_to_player_stats_and_adds_penalties():
+    # Seen on older Premier League matches: every boxscore statistic reads 0, but player stats exist.
+    shots = [{"team": "Home", "outcome": "saved", "on_target": True, "situation": "open_play"},
+             {"team": "Home", "outcome": "saved", "on_target": True, "situation": "penalty"}]
+    tot = {"Home": {"totalShots": "0", "shotsOnTarget": "0", "blockedShots": "0"},
+           "Away": {"totalShots": "0", "shotsOnTarget": "0", "blockedShots": "0"}}
+    assert not eb.boxscore_usable(tot)
+    assert eb.reconcile(shots, tot, players=[_roster("Home", 1)]) == "ok"   # 1 player shot + 1 penalty
+    assert eb.reconcile(shots, tot, players=[_roster("Home", 3)]) == "mismatch"
+    assert eb.reconcile(shots, tot, players=[]) == "no_boxscore"
+
+
+def test_stoppage_time_repeats_are_not_flagged_as_duplicates():
+    from pitchline.espn_shots import parse_shots
+    s = {"commentary": [_shot("1", "Home", "Shot Off Target"), _shot("2", "Home", "Shot Off Target")]}
+    shots = parse_shots(s, "9", "eng.1")
+    for sh in shots:
+        sh["seconds"] = 5400.0
+    assert not any("DUPLICATE?" in line for line in eb.suspicious_lines(s, shots))

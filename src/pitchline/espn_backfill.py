@@ -81,25 +81,49 @@ def _players(summary: dict) -> list[dict]:
     return out
 
 
-def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = None) -> str:
+def boxscore_usable(totals: dict[str, dict]) -> bool:
+    """ESPN's boxscore is empty for some older matches (every statistic reads 0). Two teams never both have
+    zero shots, so an all-zero boxscore is missing data, not a result."""
+    def n(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+    return bool(totals) and any(n(v["totalShots"]) > 0 for v in totals.values())
+
+
+def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = None,
+              players: list[dict] | None = None) -> str:
     """Strict check on TOTAL shots per team. On-target is deliberately not part of the check:
-    ESPN counts some blocked shots as on target in its own stats while commentary only says 'blocked'."""
+    ESPN counts some blocked shots as on target in its own stats while commentary only says 'blocked'.
+
+    If the boxscore is empty but ESPN's per-player stats exist, the check falls back to those: the sum of the
+    team's player shots plus the team's penalties (ESPN's player totalShots leaves penalties out)."""
     if not totals or all(v["totalShots"] is None for v in totals.values()):
         return "no_boxscore"
     if not shots:
         return "no_commentary"
     status = "ok"
     teams_in_shots = sorted({s["team"] for s in shots if s["team"]})
+    use_roster = not boxscore_usable(totals)
+    if use_roster and not players:
+        return "no_boxscore"
     for team, tot in totals.items():
         mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
-        if str(len(mine)) != str(tot["totalShots"]):
+        if use_roster:
+            expected = (sum(p["shots"] for p in players if p["team"] == team)
+                        + sum(1 for s in mine if s["situation"] == "penalty"))
+            source = "player stats"
+        else:
+            expected, source = tot["totalShots"], "boxscore"
+        if str(len(mine)) != str(expected):
             status = "mismatch"
-            if detail is not None and len(mine) > int(tot["totalShots"] or 0):
+            if detail is not None and len(mine) > int(expected or 0):
                 for sh in mine:
                     detail.append(f"  [{team}] {sh['seconds']}s {sh['outcome']} {sh['player']} "
                                   f"(play {sh['play_id']}) {sh['raw_text'][:90]!r}")
             if detail is not None:
-                detail.append(f"{team}: parsed total={len(mine)} boxscore total={tot['totalShots']}"
+                detail.append(f"{team}: parsed total={len(mine)} {source} total={expected}"
                               f" shot-teams={teams_in_shots}")
     return status
 
@@ -119,6 +143,7 @@ def on_target_gap(shots: list[dict], totals: dict[str, dict]) -> int:
 # Prefixes of commentary lines that describe a shot. Fouls, VAR and handball lines that merely mention
 # a penalty are deliberately not matched, to keep the diagnostics readable.
 _SHOTLIKE = ("attempt", "goal!", "penalty saved", "penalty missed", "own goal")
+_STOPPAGE_SECONDS = (2700.0, 5400.0, 6300.0, 7200.0)
 _WOODWORK = re.compile(r"\bhits? the .*\b(post|bar|woodwork)\b")
 
 
@@ -139,7 +164,8 @@ def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
     for sh in shots:
         k = (sh["team"], sh["player"], sh["seconds"], sh["outcome"])
         seen[k] = seen.get(k, 0) + 1
-    out += [f"DUPLICATE? {k} x{n}" for k, n in seen.items() if n > 1]
+    # ESPN pins stoppage-time events to the end-of-half clock value, so repeats there can be real shots.
+    out += [f"DUPLICATE? {k} x{n}" for k, n in seen.items() if n > 1 and k[2] not in _STOPPAGE_SECONDS]
     return out
 
 
@@ -160,7 +186,8 @@ def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = 
     }
     rec["on_target_gap"] = on_target_gap(shots, rec["boxscore_totals"])
     detail: list[str] = []
-    rec["coverage"] = reconcile(shots, rec["boxscore_totals"], detail)
+    rec["reconciled_with"] = "boxscore" if boxscore_usable(rec["boxscore_totals"]) else "player_stats"
+    rec["coverage"] = reconcile(shots, rec["boxscore_totals"], detail, rec["players"])
     if rec["coverage"] != "ok":
         log.warning("event %s %s: %s | commentary entries=%d, shots parsed=%d | %s", ev["id"],
                     rec["coverage"], " / ".join(t["name"] for t in rec["teams"]),

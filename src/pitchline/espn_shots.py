@@ -161,7 +161,9 @@ def parse_shots(summary: dict[str, Any], event_id: str, league: str) -> list[dic
                 continue
             outcome, on_target = typed
         else:
-            hit = next((v for p, v in _TEXT_PREFIX if text.startswith(p)), None)
+            # the line can start with "Attempt ..." in either the play text or the commentary entry's own text
+            texts = (text, play.get("text") or "", entry.get("text") or "")
+            hit = next((v for t in texts for p, v in _TEXT_PREFIX if t.startswith(p)), None)
             if hit is None:
                 continue
             outcome, on_target = hit
