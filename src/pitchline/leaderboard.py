@@ -2,6 +2,8 @@
 
 Shots on Target uses ESPN's own per-player match stats (stored under ``players`` in each match file),
 because ESPN counts some blocked shots as on target and the commentary cannot reproduce that.
+"Matches" counts only matches where ESPN recorded at least one shot, goal or assist for the player (ESPN's
+roster stats are stored for non-zero players only), so it is NOT an appearance count.
 Players are keyed by (league, name); ESPN athlete ids are not stored yet, so two different players
 with an identical name in one league would be merged (rare, documented in the README).
 """
@@ -54,7 +56,7 @@ def markdown(players: dict, coverage: dict, n: int = 10) -> str:
         c = coverage[lg]
         out.append(f"### {lg}: top {n} by shots on target "
                    f"({c['matches']} matches stored, {c['ok']} reconcile on total shots)\n")
-        out.append("| # | Player | Team | Matches | Shots | On target | Goals | Assists |")
+        out.append("| # | Player | Team | Matches with a stat | Shots | On target | Goals | Assists |")
         out.append("|--:|---|---|--:|--:|--:|--:|--:|")
         for i, r in enumerate(top(players, lg, n), 1):
             out.append(f"| {i} | {r['player']} | {r['team']} | {r['matches']} | {r['shots']} | "
