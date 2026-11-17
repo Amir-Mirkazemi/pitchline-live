@@ -1,0 +1,32 @@
+name: leaderboard
+
+on:
+  workflow_dispatch:
+    inputs:
+      league:
+        description: "ESPN league slug (leave empty for every stored league)"
+        required: false
+
+jobs:
+  leaderboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-pipeline.txt boto3 && pip install -e .
+      - name: Top players per league (tables appear on the run summary page)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          PITCHLINE_ROOT: s3://${{ vars.S3_BUCKET }}/pitchline
+          IN_LEAGUE: ${{ github.event.inputs.league }}
+        run: |
+          if [ -n "$IN_LEAGUE" ]; then
+            python -m pitchline.leaderboard --league "$IN_LEAGUE" --top 10
+          else
+            python -m pitchline.leaderboard --top 10
+          fi
