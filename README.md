@@ -129,8 +129,11 @@ player shot and chance creation totals across years and updates as matches finis
   `mismatch`; mismatches are logged with the lines that explain them. On a live run over all 110
   Premier League matches from 2025-08-01 to 2025-11-15, 110 of 110 reconcile on total shots
   (the first live run reconciled 4 of 15; the gap was ESPN data quirks, fixed one by one with tests).
-  Across the full three Premier League seasons stored so far (1,240 matches), 1,215 reconcile; the other
-  25 are being investigated.
+  Across the three Premier League seasons stored so far (1,240 matches), 1,234 reconcile (99.5%). Of the
+  other 6, one has no commentary at ESPN and five (all from 2023-24) differ from ESPN's own totals by
+  one or two shots. They stay flagged `mismatch` in the data and are never hidden. For some older matches
+  ESPN's boxscore is empty (every statistic reads 0), so those are checked against ESPN's per-player
+  stats instead (the match file records which source was used).
   Known limit: ESPN counts some blocked shots as on target in its own stats, so Shots on Target uses
   ESPN's per-player roster stats, not the commentary.
 - xG estimator calibrated to StatsBomb xG, validated leave-one-competition-out
