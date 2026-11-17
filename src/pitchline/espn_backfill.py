@@ -98,7 +98,7 @@ def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = 
     ESPN counts some blocked shots as on target in its own stats while commentary only says 'blocked'.
 
     If the boxscore is empty but ESPN's per-player stats exist, the check falls back to those: the sum of the
-    team's player shots plus the team's penalties (ESPN's player totalShots leaves penalties out)."""
+    team's player shots plus its saved or missed penalties (ESPN's player totalShots leaves those out)."""
     if not totals or all(v["totalShots"] is None for v in totals.values()):
         return "no_boxscore"
     if not shots:
@@ -111,8 +111,9 @@ def reconcile(shots: list[dict], totals: dict[str, dict], detail: list | None = 
     for team, tot in totals.items():
         mine = [s for s in shots if s["team"] == team and s["outcome"] != "own_goal"]
         if use_roster:
+            # ESPN's player totalShots counts a scored penalty (it is a goal) but not a saved or missed one.
             expected = (sum(p["shots"] for p in players if p["team"] == team)
-                        + sum(1 for s in mine if s["situation"] == "penalty"))
+                        + sum(1 for s in mine if s["situation"] == "penalty" and s["outcome"] != "goal"))
             source = "player stats"
         else:
             expected, source = tot["totalShots"], "boxscore"

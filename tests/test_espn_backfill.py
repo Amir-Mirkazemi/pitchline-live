@@ -179,3 +179,14 @@ def test_stoppage_time_repeats_are_not_flagged_as_duplicates():
     for sh in shots:
         sh["seconds"] = 5400.0
     assert not any("DUPLICATE?" in line for line in eb.suspicious_lines(s, shots))
+
+
+def test_player_stats_fallback_counts_saved_penalties_but_not_scored_ones():
+    tot = {"Home": {"totalShots": "0", "shotsOnTarget": "0", "blockedShots": "0"},
+           "Away": {"totalShots": "0", "shotsOnTarget": "0", "blockedShots": "0"}}
+    scored = [{"team": "Home", "outcome": "goal", "on_target": True, "situation": "penalty"},
+              {"team": "Home", "outcome": "saved", "on_target": True, "situation": "open_play"}]
+    assert eb.reconcile(scored, tot, players=[_roster("Home", 2)]) == "ok"       # scored penalty is in player stats
+    saved = [{"team": "Home", "outcome": "saved", "on_target": True, "situation": "penalty"},
+             {"team": "Home", "outcome": "saved", "on_target": True, "situation": "open_play"}]
+    assert eb.reconcile(saved, tot, players=[_roster("Home", 1)]) == "ok"        # saved penalty is not
