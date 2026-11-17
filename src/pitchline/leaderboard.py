@@ -50,8 +50,16 @@ def top(players: dict, league: str, n: int = 10, key: str = "shots_on_target") -
     return sorted(rows, key=lambda r: (-r[key], -r["shots"], r["player"]))[:n]
 
 
+def _rank(players: dict, row: dict, keys: tuple[str, ...]) -> tuple[int, int]:
+    """(rank, field size) of one player within his league; ties share the better rank (1, 2, 2, 4)."""
+    league = [r for r in players.values() if r["league"] == row["league"]]
+    mine = tuple(row[k] for k in keys)
+    return 1 + sum(1 for r in league if tuple(r[k] for k in keys) > mine), len(league)
+
+
 def find_players(players: dict, query: str, n: int = 25) -> list[dict]:
-    """Players whose name contains the query (case and accent insensitive), best by shots on target first."""
+    """Players whose name contains the query (case and accent insensitive), best by shots on target first.
+    Each row gets its rank within its league by shots on target and by goals."""
     import unicodedata
 
     def fold(t: str) -> str:
@@ -59,17 +67,25 @@ def find_players(players: dict, query: str, n: int = 25) -> list[dict]:
 
     q = fold(query.strip())
     rows = [r for r in players.values() if q and q in fold(r["player"])]
-    return sorted(rows, key=lambda r: (-r["shots_on_target"], -r["shots"], r["player"]))[:n]
+    rows = sorted(rows, key=lambda r: (-r["shots_on_target"], -r["shots"], r["player"]))[:n]
+    out = []
+    for r in rows:
+        sot_rank, size = _rank(players, r, ("shots_on_target", "shots"))
+        goal_rank, _ = _rank(players, r, ("goals", "shots_on_target"))
+        out.append({**r, "sot_rank": sot_rank, "goal_rank": goal_rank, "field": size})
+    return out
 
 
 def player_markdown(rows: list[dict], query: str) -> str:
     if not rows:
         return f"No player matching '{query}' in the stored matches."
     out = [f"### Players matching '{query}'\n",
-           "| Player | League | Team | Matches with a stat | Shots | On target | Goals | Assists |",
-           "|---|---|---|--:|--:|--:|--:|--:|"]
-    out += [f"| {r['player']} | {r['league']} | {r['team']} | {r['matches']} | {r['shots']} | "
-            f"{r['shots_on_target']} | {r['goals']} | {r['assists']} |" for r in rows]
+           "| Player | League | Team | Rank: on target | Rank: goals | Matches with a stat | Shots "
+           "| On target | Goals | Assists |",
+           "|---|---|---|---|---|--:|--:|--:|--:|--:|"]
+    out += [f"| {r['player']} | {r['league']} | {r['team']} | #{r['sot_rank']} of {r['field']} | "
+            f"#{r['goal_rank']} of {r['field']} | {r['matches']} | {r['shots']} | {r['shots_on_target']} | "
+            f"{r['goals']} | {r['assists']} |" for r in rows]
     return "\n".join(out) + "\n"
 
 

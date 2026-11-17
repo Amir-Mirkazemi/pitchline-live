@@ -56,3 +56,17 @@ def test_player_search_ignores_case_and_accents_and_spans_leagues(tmp_path):
     assert len(rows) == 2
     assert [r["player"] for r in lb.find_players(players, "MBAPPE")] == ["Kylian Mbappé"]
     assert "No player matching 'zzz'" in lb.player_markdown(lb.find_players(players, "zzz"), "zzz")
+
+
+def test_player_lookup_shows_rank_within_each_league_with_shared_ties(tmp_path):
+    s = LocalStore(tmp_path)
+    _put(s, "eng.1", "1", "2025-08-16", [_p("A", "Star", 9, 6, goals=4), _p("A", "Twin", 5, 3, goals=1),
+                                          _p("B", "Twin2", 5, 3, goals=1), _p("B", "Last", 1, 0)])
+    _put(s, "esp.1", "2", "2025-08-16", [_p("C", "Star", 2, 1)])
+    players, _ = lb.load_totals(s)
+    star = {r["league"]: r for r in lb.find_players(players, "star")}
+    assert (star["eng.1"]["sot_rank"], star["eng.1"]["field"], star["eng.1"]["goal_rank"]) == (1, 4, 1)
+    assert (star["esp.1"]["sot_rank"], star["esp.1"]["field"]) == (1, 1)
+    last = lb.find_players(players, "last")[0]
+    assert last["sot_rank"] == 4                                    # two tied at #2, so the next is #4
+    assert "#1 of 4" in lb.player_markdown(lb.find_players(players, "star", 5), "star")
