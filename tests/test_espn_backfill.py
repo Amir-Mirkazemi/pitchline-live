@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from itertools import chain, repeat
 
@@ -119,7 +120,7 @@ def test_player_stats_from_espn_are_stored(tmp_path):
     eb.backfill(store, "eng.1", date(2024, 1, 1), date(2024, 1, 1), make_fetch(summary), sleep=lambda s: None)
     import json
     rec = json.loads(store.read_bytes("espn/matches/eng.1/1.json"))
-    assert rec["players"] == [{"team": "Home", "player": "A", "shots": 2, "shots_on_target": 2,
+    assert rec["players"] == [{"team": "Home", "player": "A", "athlete_id": "", "shots": 2, "shots_on_target": 2,
                                "goals": 0, "assists": 0, "own_goals": 0}]
     assert rec["on_target_gap"] == 0
 
@@ -190,3 +191,37 @@ def test_player_stats_fallback_counts_saved_penalties_but_not_scored_ones():
     saved = [{"team": "Home", "outcome": "saved", "on_target": True, "situation": "penalty"},
              {"team": "Home", "outcome": "saved", "on_target": True, "situation": "open_play"}]
     assert eb.reconcile(saved, tot, players=[_roster("Home", 1)]) == "ok"        # saved penalty is not
+
+
+def _roster_entry(aid, name, starter=False, subbed_in=False, subbed_out=False, plays=()):
+    return {"athlete": {"id": aid, "displayName": name}, "starter": starter, "subbedIn": subbed_in,
+            "subbedOut": subbed_out,
+            "plays": [{"clock": {"displayValue": c}, "substitution": sub, "redCard": red} for c, sub, red in plays]}
+
+
+def test_minutes_from_roster_plays_include_stoppage_and_red_cards():
+    summary = {"commentary": [{"play": {"clock": {"displayValue": "90'+7'"}}}],
+               "rosters": [{"team": {"displayName": "Home"}, "roster": [
+                   _roster_entry("1", "Full", starter=True),
+                   _roster_entry("2", "Off", starter=True, subbed_out=True, plays=[("75'", True, False)]),
+                   _roster_entry("3", "On", subbed_in=True, plays=[("75'", True, False)]),
+                   _roster_entry("4", "Sent", starter=True, plays=[("58'", False, True)]),
+                   _roster_entry("5", "Bench")]}]}
+    assert eb.match_length(summary) == 97
+    got = {r["player"]: r["minutes"] for r in eb._lineup(summary)}
+    assert got == {"Full": 97, "Off": 75, "On": 22, "Sent": 58}          # the unused sub is not in the lineup
+    assert eb.parse_minute("45'+5'") == 50 and eb.parse_minute(None) is None
+
+
+def test_upgrade_redownloads_only_old_layout_files(tmp_path):
+    store, log = LocalStore(tmp_path), []
+    args = (store, "eng.1", date(2024, 1, 1), date(2024, 1, 1))
+    eb.backfill(*args, make_fetch(_summary(3, 1)), sleep=lambda s: None)
+    rec = json.loads(store.read_bytes("espn/matches/eng.1/1.json"))
+    assert rec["schema"] == eb.SCHEMA and "lineup" in rec
+    eb.backfill(*args, make_fetch(_summary(3, 1), log), sleep=lambda s: None, upgrade=True)
+    assert not any("summary" in u for u in log)                           # already current: skipped
+    rec.pop("schema")
+    store.write_bytes("espn/matches/eng.1/1.json", json.dumps(rec).encode())
+    eb.backfill(*args, make_fetch(_summary(3, 1), log), sleep=lambda s: None, upgrade=True)
+    assert any("summary" in u for u in log)                               # old layout: refetched

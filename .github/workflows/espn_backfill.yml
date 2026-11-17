@@ -18,6 +18,10 @@ on:
         description: "Re-download matches that did not reconcile (true/false)"
         required: false
         default: "false"
+      upgrade:
+        description: "Re-download matches stored in an older file layout, to add athlete ids and minutes (true/false)"
+        required: false
+        default: "false"
 
 concurrency: espn-backfill
 
@@ -42,8 +46,10 @@ jobs:
           IN_FROM: ${{ github.event.inputs.from }}
           IN_TO: ${{ github.event.inputs.to }}
           IN_RETRY: ${{ github.event.inputs.retry_bad }}
+          IN_UPGRADE: ${{ github.event.inputs.upgrade }}
         run: |
           FLAG=""; [ "$IN_RETRY" = "true" ] && FLAG="--retry-bad"
+          [ "$IN_UPGRADE" = "true" ] && FLAG="$FLAG --upgrade"
           if [ -n "$IN_LEAGUE" ]; then
             python -m pitchline.espn_backfill --league "$IN_LEAGUE" --from "$IN_FROM" --to "$IN_TO" --max-minutes 300 $FLAG
           else

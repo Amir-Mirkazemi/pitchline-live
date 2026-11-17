@@ -2,10 +2,9 @@
 
 Shots on Target uses ESPN's own per-player match stats (stored under ``players`` in each match file),
 because ESPN counts some blocked shots as on target and the commentary cannot reproduce that.
-"Matches" counts only matches where ESPN recorded at least one shot, goal or assist for the player (ESPN's
-roster stats are stored for non-zero players only), so it is NOT an appearance count.
-Players are keyed by (league, name); ESPN athlete ids are not stored yet, so two different players
-with an identical name in one league would be merged (rare, documented in the README).
+Players are keyed by (league, ESPN athlete id). Match files stored before ids existed are linked to an id by
+name when that name maps to exactly one id in the league, otherwise they stay keyed by name until the files
+are re-downloaded with ``--upgrade``. Apps and Minutes come from stored lineups ("-" where none is stored).
 """
 from __future__ import annotations
 
@@ -19,29 +18,55 @@ from .storage import Store, get_store
 PREFIX = "espn/matches/"
 
 
+def _new_row(lg: str, name: str, team: str, athlete_id: str = "") -> dict:
+    return {"league": lg, "player": name, "team": team, "athlete_id": athlete_id, "matches": 0,
+            "shots": 0, "shots_on_target": 0, "goals": 0, "assists": 0, "apps": 0, "minutes": 0,
+            "lineup_matches": 0}
+
+
 def load_totals(store: Store, league: str | None = None) -> tuple[dict, dict]:
-    """Return (players, coverage). players[(league, name)] -> running totals; coverage[league] -> counts."""
-    players: dict[tuple[str, str], dict] = {}
-    coverage: dict[str, dict] = defaultdict(lambda: {"matches": 0, "ok": 0})
+    """Return (players, coverage). players[(league, athlete id or name)] -> running totals."""
+    coverage: dict[str, dict] = defaultdict(lambda: {"matches": 0, "ok": 0, "with_lineup": 0})
     prefix = PREFIX + (f"{league}/" if league else "")
     recs = []
     for key in store.list_keys(prefix):
-        if not key.endswith(".json"):
-            continue
-        rec = json.loads(store.read_bytes(key))
-        recs.append(rec)
-    for rec in sorted(recs, key=lambda r: r.get("date") or ""):  # oldest first, so "team" ends as the latest
+        if key.endswith(".json"):
+            recs.append(json.loads(store.read_bytes(key)))
+    recs.sort(key=lambda r: r.get("date") or "")          # oldest first, so "team" ends as the latest
+    # Matches stored before athlete ids existed are linked by name, but only when the name maps to one id.
+    ids_by_name: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for rec in recs:
+        for p in rec.get("players", []) + rec.get("lineup", []):
+            if p.get("athlete_id"):
+                ids_by_name[(rec["league"], p["player"])].add(p["athlete_id"])
+
+    def pid(lg: str, p: dict) -> str:
+        if p.get("athlete_id"):
+            return p["athlete_id"]
+        ids = ids_by_name.get((lg, p["player"]), set())
+        return next(iter(ids)) if len(ids) == 1 else p["player"]
+
+    players: dict[tuple[str, str], dict] = {}
+    for rec in recs:
         lg = rec["league"]
-        coverage[lg]["matches"] += 1
-        coverage[lg]["ok"] += rec.get("coverage") == "ok"
+        cov = coverage[lg]
+        cov["matches"] += 1
+        cov["ok"] += rec.get("coverage") == "ok"
+        cov["with_lineup"] += bool(rec.get("lineup"))
         for p in rec.get("players", []):
-            row = players.setdefault((lg, p["player"]), {
-                "league": lg, "player": p["player"], "team": p["team"], "matches": 0,
-                "shots": 0, "shots_on_target": 0, "goals": 0, "assists": 0})
+            row = players.setdefault((lg, pid(lg, p)),
+                                     _new_row(lg, p["player"], p["team"], p.get("athlete_id", "")))
             row["team"] = p["team"]
             row["matches"] += 1
             for k in ("shots", "shots_on_target", "goals", "assists"):
                 row[k] += int(p.get(k) or 0)
+        for p in rec.get("lineup", []):
+            row = players.setdefault((lg, pid(lg, p)),
+                                     _new_row(lg, p["player"], p["team"], p.get("athlete_id", "")))
+            row["team"] = p["team"]
+            row["apps"] += 1
+            row["minutes"] += int(p.get("minutes") or 0)
+            row["lineup_matches"] += 1
     return players, dict(coverage)
 
 
@@ -76,16 +101,24 @@ def find_players(players: dict, query: str, n: int = 25) -> list[dict]:
     return out
 
 
+def _apps(r: dict):
+    return r["apps"] if r["lineup_matches"] else "-"      # "-" = no lineup data stored yet for this player
+
+
+def _mins(r: dict):
+    return r["minutes"] if r["lineup_matches"] else "-"
+
+
 def player_markdown(rows: list[dict], query: str) -> str:
     if not rows:
         return f"No player matching '{query}' in the stored matches."
     out = [f"### Players matching '{query}'\n",
-           "| Player | League | Team | Rank: on target | Rank: goals | Matches with a stat | Shots "
+           "| Player | League | Team | Rank: on target | Rank: goals | Apps | Minutes | Shots "
            "| On target | Goals | Assists |",
-           "|---|---|---|---|---|--:|--:|--:|--:|--:|"]
+           "|---|---|---|---|---|--:|--:|--:|--:|--:|--:|"]
     out += [f"| {r['player']} | {r['league']} | {r['team']} | #{r['sot_rank']} of {r['field']} | "
-            f"#{r['goal_rank']} of {r['field']} | {r['matches']} | {r['shots']} | {r['shots_on_target']} | "
-            f"{r['goals']} | {r['assists']} |" for r in rows]
+            f"#{r['goal_rank']} of {r['field']} | {_apps(r)} | {_mins(r)} | {r['shots']} | "
+            f"{r['shots_on_target']} | {r['goals']} | {r['assists']} |" for r in rows]
     return "\n".join(out) + "\n"
 
 
@@ -94,11 +127,12 @@ def markdown(players: dict, coverage: dict, n: int = 10) -> str:
     for lg in sorted(coverage):
         c = coverage[lg]
         out.append(f"### {lg}: top {n} by shots on target "
-                   f"({c['matches']} matches stored, {c['ok']} reconcile on total shots)\n")
-        out.append("| # | Player | Team | Matches with a stat | Shots | On target | Goals | Assists |")
-        out.append("|--:|---|---|--:|--:|--:|--:|--:|")
+                   f"({c['matches']} matches stored, {c['ok']} reconcile on total shots, "
+                   f"{c['with_lineup']} with minutes played)\n")
+        out.append("| # | Player | Team | Apps | Minutes | Shots | On target | Goals | Assists |")
+        out.append("|--:|---|---|--:|--:|--:|--:|--:|--:|")
         for i, r in enumerate(top(players, lg, n), 1):
-            out.append(f"| {i} | {r['player']} | {r['team']} | {r['matches']} | {r['shots']} | "
+            out.append(f"| {i} | {r['player']} | {r['team']} | {_apps(r)} | {_mins(r)} | {r['shots']} | "
                        f"{r['shots_on_target']} | {r['goals']} | {r['assists']} |")
         out.append("")
     return "\n".join(out)

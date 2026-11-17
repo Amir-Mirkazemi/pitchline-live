@@ -64,6 +64,55 @@ def _totals(summary: dict) -> dict[str, dict]:
     return out
 
 
+SCHEMA = 2   # 2 = player rows carry athlete ids; match files carry a lineup with minutes played
+
+_MINUTE = re.compile(r"(\d+)'(?:\s*\+\s*(\d+)')?")
+
+
+def parse_minute(text: str | None) -> int | None:
+    """"75'" -> 75, "45'+5'" -> 50."""
+    m = _MINUTE.search(text or "")
+    return int(m.group(1)) + int(m.group(2) or 0) if m else None
+
+
+def match_length(summary: dict) -> int:
+    """Minutes played in the match, stoppage time included (the largest clock shown in the commentary)."""
+    ends = [parse_minute(((e.get("play") or {}).get("clock") or {}).get("displayValue"))
+            for e in summary.get("commentary", [])]
+    return max([90] + [m for m in ends if m is not None])
+
+
+def _lineup(summary: dict) -> list[dict]:
+    """Everyone who played, with minutes. Minutes come from each player's own ESPN play list (substitution
+    and red-card clocks), so no name matching is needed. Stoppage time counts as real minutes."""
+    end = match_length(summary)
+    out = []
+    for r in summary.get("rosters", []):
+        team = (r.get("team") or {}).get("displayName")
+        for pl in r.get("roster", []):
+            if not (pl.get("starter") or pl.get("subbedIn")):
+                continue
+            plays = pl.get("plays") or []
+            subs = sorted(m for m in (parse_minute((p.get("clock") or {}).get("displayValue"))
+                                      for p in plays if p.get("substitution")) if m is not None)
+            reds = [m for m in (parse_minute((p.get("clock") or {}).get("displayValue"))
+                                for p in plays if p.get("redCard")) if m is not None]
+            start = 0
+            if not pl.get("starter"):
+                start = subs.pop(0) if subs else None
+            stop = end
+            if pl.get("subbedOut") and subs:
+                stop = subs[-1]
+            if reds:
+                stop = min(stop, reds[0])
+            ath = pl.get("athlete") or {}
+            out.append({"team": team, "athlete_id": str(ath.get("id") or ""),
+                        "player": ath.get("displayName"),
+                        "starter": bool(pl.get("starter")),
+                        "minutes": None if start is None else max(0, stop - start)})
+    return out
+
+
 def _players(summary: dict) -> list[dict]:
     """ESPN's own per-player match stats (authoritative for shots / shots on target / goals / assists)."""
     out = []
@@ -72,6 +121,7 @@ def _players(summary: dict) -> list[dict]:
         for pl in r.get("roster", []):
             st = {s["name"]: s.get("value") for s in pl.get("stats", [])}
             row = {"team": team, "player": (pl.get("athlete") or {}).get("displayName"),
+                   "athlete_id": str((pl.get("athlete") or {}).get("id") or ""),
                    "shots": int(st.get("totalShots") or 0),
                    "shots_on_target": int(st.get("shotsOnTarget") or 0),
                    "goals": int(st.get("totalGoals") or 0), "assists": int(st.get("goalAssists") or 0),
@@ -170,10 +220,14 @@ def suspicious_lines(summary: dict, shots: list[dict]) -> list[str]:
     return out
 
 
-def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = False) -> str | None:
+def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = False,
+                  upgrade: bool = False) -> str | None:
     key = f"espn/matches/{league}/{ev['id']}.json"
     if store.exists(key):
-        if not retry_bad or json.loads(store.read_bytes(key)).get("coverage") == "ok":
+        old = json.loads(store.read_bytes(key))
+        wanted = ((retry_bad and old.get("coverage") != "ok")
+                  or (upgrade and old.get("schema", 1) < SCHEMA))   # --upgrade: older layout
+        if not wanted:
             return None
     summary, _ = fetch(f"{BASE}/{league}/summary?event={ev['id']}")
     shots = parse_shots(summary, ev["id"], league)
@@ -184,6 +238,7 @@ def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = 
         "teams": [{"name": c["team"]["displayName"], "home": c["homeAway"] == "home",
                    "score": c.get("score")} for c in comp["competitors"]],
         "boxscore_totals": _totals(summary), "shots": shots, "players": _players(summary),
+        "lineup": _lineup(summary), "schema": SCHEMA,
     }
     rec["on_target_gap"] = on_target_gap(shots, rec["boxscore_totals"])
     detail: list[str] = []
@@ -201,7 +256,7 @@ def process_event(store: Store, league: str, ev: dict, fetch, retry_bad: bool = 
 
 def backfill(store: Store, league: str, start: date, end: date, fetch=None, sleep=time.sleep,
              window: int = 7, max_minutes: float = 300, clock=time.monotonic,
-             retry_bad: bool = False) -> dict:
+             retry_bad: bool = False, upgrade: bool = False) -> dict:
     fetch = fetch or (lambda url: get_json(url))
     t0 = clock()
     events = list_events(league, start, end, window, fetch, sleep)
@@ -211,7 +266,7 @@ def backfill(store: Store, league: str, start: date, end: date, fetch=None, slee
             stats["stopped_early"] = True
             break
         try:
-            cov = process_event(store, league, ev, fetch, retry_bad)
+            cov = process_event(store, league, ev, fetch, retry_bad, upgrade)
         except Exception as err:  # one bad match must not stop the run
             log.error("event %s failed: %s", ev["id"], err)
             stats["failed"] += 1
@@ -236,6 +291,8 @@ def main(argv=None) -> int:
     ap.add_argument("--window", type=int, default=7)
     ap.add_argument("--retry-bad", action="store_true",
                     help="re-download matches whose stored coverage is not 'ok'")
+    ap.add_argument("--upgrade", action="store_true",
+                    help="re-download matches stored in an older file layout (adds athlete ids and minutes)")
     ap.add_argument("--max-minutes", type=float, default=300)
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -256,7 +313,7 @@ def main(argv=None) -> int:
             log.info("time budget used up; remaining targets run next time")
             break
         stats = backfill(store, t["league"], parse(str(t["from"])), parse(str(t["to"])),
-                         window=a.window, max_minutes=left, retry_bad=a.retry_bad)
+                         window=a.window, max_minutes=left, retry_bad=a.retry_bad, upgrade=a.upgrade)
         bad = bad or bool(stats["failed"] and not stats["new"])
     return 1 if bad else 0
 
