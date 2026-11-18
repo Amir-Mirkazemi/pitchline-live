@@ -139,3 +139,16 @@ def test_free_kick_typed_shot_is_parsed_when_only_the_entry_text_has_the_prefix(
     entry["text"] = "Attempt missed. L D (Brighton) right footed shot from more than 35 yards misses to the left."
     rows = parse_shots({"commentary": [entry]}, "9", "eng.1")
     assert len(rows) == 1 and rows[0]["outcome"] == "off_target"
+
+
+def test_text_only_shot_matches_team_despite_accents():
+    summary = {"boxscore": {"teams": [{"team": {"displayName": "Cádiz"}}, {"team": {"displayName": "Alavés"}}]},
+               "commentary": [
+                   {"sequence": 1, "time": {"value": 600.0},
+                    "text": "Attempt saved. Roger Martí (Cadiz) right footed shot from the centre of the box "
+                            "is saved in the top centre of the goal. Assisted by Chris Ramos."},
+                   {"sequence": 2, "time": {"value": 900.0},
+                    "text": "Attempt blocked. Jon Guridi (Alaves) left footed shot from outside the box is blocked."}]}
+    rows = parse_shots(summary, "1", "esp.1")
+    assert [(r["team"], r["player"], r["outcome"]) for r in rows] == [
+        ("Cádiz", "Roger Martí", "saved"), ("Alavés", "Jon Guridi", "blocked")]

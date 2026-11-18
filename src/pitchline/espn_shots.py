@@ -9,6 +9,7 @@ free text only for body part, situation and cross detection.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 # ESPN play type text -> (outcome, on_target)
@@ -96,7 +97,9 @@ def looks_like_shot(text: str) -> bool:
 
 
 def _norm(name: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", name.lower().replace("&", "and"))
+    """Lower-case, accent-free, letters and digits only ("Cádiz" and "Cadiz" both give "cadiz")."""
+    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", folded.lower().replace("&", "and"))
 
 
 def resolve_team(name: str, team_names: dict[str, str]) -> str | None:
